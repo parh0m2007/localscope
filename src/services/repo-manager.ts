@@ -13,10 +13,32 @@ import {
   analyzeSymbolImpact,
 } from "../services/impact.js";
 import type { ImpactReport } from "../types.js";
+import {
+  loadIndex,
+  saveIndex,
+  resolveCacheDir,
+} from "../services/persister.js";
+import { updateIndex } from "../services/incremental.js";
+import {
+  createRepoWatcher,
+  type RepoWatcher,
+} from "../services/watcher.js";
+
+const DEFAULT_MAX_FILES = 50_000;
+
+export interface IndexOutcome {
+  readonly index: IndexResult;
+  readonly mode: "fresh" | "incremental" | "restored";
+  readonly changedFiles: number;
+  readonly addedFiles: number;
+  readonly removedFiles: number;
+}
 
 export class RepoManager {
   private indexes = new Map<string, IndexResult>();
   private embedder: Embedder = lexicalEmbedder;
+  private watchers = new Map<string, RepoWatcher>();
+  private reindexInFlight = new Map<string, Promise<void>>();
 
   async resolveRoot(input: string): Promise<string> {
     const resolved = path.isAbsolute(input)
@@ -37,11 +59,94 @@ export class RepoManager {
     return this.embedder;
   }
 
-  async index(root: string, maxFiles: number): Promise<IndexResult> {
+  private startWatcher(root: string): void {
+    if (this.watchers.has(root)) return;
+    const watcher = createRepoWatcher({
+      rootDir: root,
+      onChange: () => {
+        void this.reindexInBackground(root);
+      },
+    });
+    this.watchers.set(root, watcher);
+  }
+
+  private async reindexInBackground(root: string): Promise<void> {
+    const existing = this.reindexInFlight.get(root);
+    if (existing) return existing;
+
+    const task = (async () => {
+      const current = this.indexes.get(root);
+      if (!current) return;
+      try {
+        const embedder = await this.ensureEmbedder();
+        const { index } = await updateIndex(current, {
+          embedder,
+          maxFiles: DEFAULT_MAX_FILES,
+        });
+        this.indexes.set(root, index);
+        await saveIndex(index).catch(() => undefined);
+      } catch {
+        // Background refresh is best-effort; next explicit index() will fix.
+      }
+    })().finally(() => {
+      this.reindexInFlight.delete(root);
+    });
+
+    this.reindexInFlight.set(root, task);
+    void task;
+  }
+
+  async index(root: string, maxFiles: number): Promise<IndexOutcome> {
     const embedder = await this.ensureEmbedder();
-    const index = await buildIndex({ rootDir: root, embedder, maxFiles });
+
+    const persisted = await loadIndex(root);
+    let index: IndexResult;
+    let mode: IndexOutcome["mode"];
+    let delta = { changed: 0, added: 0, removed: 0 };
+
+    if (persisted.loaded) {
+      const update = await updateIndex(persisted.index, {
+        embedder,
+        maxFiles,
+      });
+      index = update.index;
+      mode = "incremental";
+      delta = {
+        changed: update.changedFiles.length,
+        added: update.addedFiles.length,
+        removed: update.removedFiles.length,
+      };
+    } else {
+      index = await buildIndex({ rootDir: root, embedder, maxFiles });
+      mode = "fresh";
+    }
+
     this.indexes.set(root, index);
-    return index;
+    await saveIndex(index).catch(() => undefined);
+    this.startWatcher(root);
+
+    return {
+      index,
+      mode,
+      changedFiles: delta.changed,
+      addedFiles: delta.added,
+      removedFiles: delta.removed,
+    };
+  }
+
+  async ensureIndex(root: string): Promise<IndexResult | undefined> {
+    const inMemory = this.indexes.get(root);
+    if (inMemory) {
+      this.startWatcher(root);
+      return inMemory;
+    }
+    const persisted = await loadIndex(root);
+    if (persisted.loaded) {
+      this.indexes.set(root, persisted.index);
+      this.startWatcher(root);
+      return persisted.index;
+    }
+    return undefined;
   }
 
   getIndex(root: string): IndexResult | undefined {
@@ -52,8 +157,8 @@ export class RepoManager {
     root: string,
     query: string,
     limit: number,
-  ): Promise<IndexResult["chunks"] extends readonly unknown[] ? ReturnType<typeof semanticSearch> : never> {
-    const index = this.indexes.get(root);
+  ): Promise<ReturnType<typeof semanticSearch>> {
+    const index = await this.ensureIndex(root);
     if (!index) {
       throw new Error(
         `No index for ${root}. Call localscope_index first, then search.`,
@@ -62,8 +167,8 @@ export class RepoManager {
     return semanticSearch(index, this.embedder, query, limit);
   }
 
-  impact(root: string, target: string, maxDepth: number): ImpactReport {
-    const index = this.indexes.get(root);
+  async impact(root: string, target: string, maxDepth: number): Promise<ImpactReport> {
+    const index = await this.ensureIndex(root);
     if (!index) {
       throw new Error(
         `No index for ${root}. Call localscope_index first, then analyze impact.`,
@@ -102,8 +207,8 @@ export class RepoManager {
     );
   }
 
-  status(root: string): Record<string, unknown> {
-    const index = this.indexes.get(root);
+  async status(root: string): Promise<Record<string, unknown>> {
+    const index = await this.ensureIndex(root);
     if (!index) {
       return {
         indexed: false,
@@ -111,6 +216,7 @@ export class RepoManager {
         hint: "Call localscope_index to build a local index. Nothing leaves your machine.",
       };
     }
+    const { cacheDir } = resolveCacheDir(root);
     return {
       indexed: true,
       root,
@@ -122,6 +228,13 @@ export class RepoManager {
           ? `onnx:${index.embedder.model} (semantic search active)`
           : `lexical (${index.embedder.note})`,
       indexedAt: new Date(index.indexedAt).toISOString(),
+      watching: this.watchers.has(root),
+      cacheDir,
     };
+  }
+
+  close(): void {
+    for (const watcher of this.watchers.values()) watcher.close();
+    this.watchers.clear();
   }
 }

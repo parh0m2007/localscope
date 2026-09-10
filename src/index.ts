@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { RepoManager } from "./services/repo-manager.js";
 import { registerTools } from "./tools/register.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.2.0";
 
 const server = new McpServer({
   name: "localscope-mcp",
@@ -27,6 +27,19 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  const shutdown = (): void => {
+    manager.close();
+    void server.close();
+  };
+  process.once("exit", shutdown);
+  process.once("SIGINT", () => {
+    shutdown();
+    process.exit(0);
+  });
+  process.once("SIGTERM", () => {
+    shutdown();
+    process.exit(0);
+  });
   console.error(`localscope-mcp ${VERSION} ready (stdio, local-only)`);
 }
 

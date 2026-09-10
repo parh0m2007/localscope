@@ -67,6 +67,8 @@ Not installed? localscope automatically falls back to lexical + symbol search. N
 ### `localscope_index`
 Build the local index: files, symbols, import graph, embeddings if available. Respects `.gitignore` and skips `node_modules`, `dist`, lockfiles, binaries. Typical repo indexes in well under a second.
 
+**Persistent and incremental.** The index is cached on disk (under `~/.cache/localscope/<repo-digest>/`) and reused across sessions: re-running `localscope_index` only re-extracts files whose mtime/size changed, and `localscope_search` / `localscope_impact` load the persisted index automatically — no full re-index in every session. While the server runs, a file watcher keeps the index fresh: edit a file, and the update lands in the background within ~300ms. Set `LOCALSCOPE_CACHE_DIR` to relocate the cache.
+
 ### `localscope_search`
 Find code by meaning ("retry with backoff"), by symbol name ("parseConfig"), or by fragment. Each hit shows file, lines, symbol, score, and *how* it matched — semantic, lexical, or symbol. Identifiers are split camelCase-aware, so "parse config" finds `parseConfig`.
 
@@ -120,13 +122,14 @@ Zero required. Everything is optional:
 | `LOCALSCOPE_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `LOCALSCOPE_PORT` | `3000` | HTTP port |
 | `LOCALSCOPE_RG_PATH` | auto-detect | Path to ripgrep binary, if you have one |
+| `LOCALSCOPE_CACHE_DIR` | `~/.cache/localscope` | Base dir for persisted indexes |
 
 ## Development
 
 ```bash
 git clone <repo> && cd localscope
 npm install
-npm test        # 31 tests
+npm test        # 39 tests
 npm run build
 npx @modelcontextprotocol/inspector node dist/index.js
 ```

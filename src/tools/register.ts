@@ -134,7 +134,9 @@ export function registerTools(server: McpServer, manager: RepoManager): void {
     "localscope_index",
     {
       title: "Index repository locally",
-      description: `Build a local, private index of a repository: files, symbols (functions/classes/types), import graph, and optional embeddings. Zero network calls — the index never leaves the machine.
+      description: `Build or refresh a local, private index of a repository: files, symbols (functions/classes/types), import graph, and optional embeddings. Zero network calls — the index never leaves the machine.
+
+The index is persisted on disk and updated incrementally: repeated calls only re-extract files that changed since the last index (by mtime), and a file watcher keeps it fresh while the server runs.
 
 Args:
   - path (string): repository root, default "."
@@ -142,7 +144,7 @@ Args:
   - response_format ('markdown' | 'json'): default 'markdown'
 
 Returns:
-  File/chunk/symbol counts, embedder mode (onnx or lexical), duration.
+  File/chunk/symbol counts, update mode (fresh/incremental/restored), embedder mode (onnx or lexical), duration.
 
 Use when: the user asks to index/analyze the codebase, or before localscope_search / localscope_impact on a repo not indexed yet in this session.`,
       inputSchema: IndexToolSchema,
@@ -157,13 +159,18 @@ Use when: the user asks to index/analyze the codebase, or before localscope_sear
       try {
         const root = await manager.resolveRoot(params.path);
         const started = Date.now();
-        const index = await manager.index(root, params.max_files);
+        const outcome = await manager.index(root, params.max_files);
+        const index = outcome.index;
         const durationMs = Date.now() - started;
         const summary = {
           root,
+          mode: outcome.mode,
           files: index.files.length,
           chunks: index.chunks.length,
           symbols: index.symbols.length,
+          changedFiles: outcome.changedFiles,
+          addedFiles: outcome.addedFiles,
+          removedFiles: outcome.removedFiles,
           embedder:
             index.embedder.type === "onnx"
               ? `onnx:${index.embedder.model} (semantic)`
@@ -179,6 +186,7 @@ Use when: the user asks to index/analyze the codebase, or before localscope_sear
                 `- Files: ${summary.files}`,
                 `- Chunks: ${summary.chunks}`,
                 `- Symbols: ${summary.symbols}`,
+                `- Update: ${outcome.mode}${outcome.mode === "incremental" ? ` (+${outcome.addedFiles} added, ~${outcome.changedFiles} changed, -${outcome.removedFiles} removed)` : ""}`,
                 `- Embedder: ${summary.embedder}`,
                 `- Took: ${durationMs}ms`,
                 "",
@@ -217,7 +225,7 @@ Args:
 Returns:
   Hits with file, line range, symbol, score, snippet, and how it matched (semantic/lexical/symbol).
 
-Use when: "where is X handled?", "find code that does Y". Requires localscope_index first.`,
+Use when: "where is X handled?", "find code that does Y". If the repo was indexed in a previous session, the persisted index is loaded automatically — no re-index needed.`,
       inputSchema: SearchToolSchema,
       annotations: {
         readOnlyHint: true,
@@ -274,7 +282,7 @@ Args:
 Returns:
   Direct dependents (files importing the target), transitive dependents, and exported symbols at risk.
 
-Use when: "what breaks if I refactor/delete this?", "who uses this function?". Requires localscope_index first.`,
+Use when: "what breaks if I refactor/delete this?", "who uses this function?". If the repo was indexed in a previous session, the persisted index is loaded automatically.`,
       inputSchema: ImpactToolSchema,
       annotations: {
         readOnlyHint: true,
@@ -286,7 +294,7 @@ Use when: "what breaks if I refactor/delete this?", "who uses this function?". R
     async (params) => {
       try {
         const root = await manager.resolveRoot(params.path);
-        const report = manager.impact(root, params.target, params.max_depth);
+        const report = await manager.impact(root, params.target, params.max_depth);
         const text = formatImpact(report, root, params.response_format);
         return {
           content: [{ type: "text", text }],
@@ -339,7 +347,7 @@ Returns:
     async (params) => {
       try {
         const root = await manager.resolveRoot(params.path);
-        const status = manager.status(root);
+        const status = await manager.status(root);
         const text =
           params.response_format === "json"
             ? JSON.stringify(status, null, 2)

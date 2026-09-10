@@ -1,6 +1,6 @@
 {
   "name": "localscope-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local-first MCP code analyst: index your repo privately (embeddings + ripgrep-style search), then ask 'where does X break if I change Y' — zero cloud, zero config.",
   "type": "module",
   "main": "dist/index.js",
