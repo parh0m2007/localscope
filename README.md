@@ -1,5 +1,8 @@
 # localscope
 
+[![CI](https://github.com/parh0m2007/localscope/actions/workflows/ci.yml/badge.svg)](https://github.com/parh0m2007/localscope/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/localscope-mcp)](https://www.npmjs.com/package/localscope-mcp)
+
 **A local code analyst for your AI assistant.**
 
 localscope is an [MCP](https://modelcontextprotocol.io) server that indexes your repository on your machine — files, symbols, imports, optional embeddings — and lets Claude, Cursor, Codex, Windsurf, or any MCP client answer questions like:
@@ -83,6 +86,10 @@ Index stats: files, chunks, symbols, embedder mode, timestamp.
 localscope makes **no outbound network calls** — not for search, not for models, not for updates. The ONNX embedder (if you install it) downloads its model once from Hugging Face into your local cache, then runs fully offline. You can verify it yourself: [src/services/embedder.ts](src/services/embedder.ts) is the only module that touches `@huggingface/transformers`, and only when you've installed it.
 
 Air-gap friendly. NDA friendly. Paranoia friendly.
+
+## Star it
+
+If localscope saved you a refactor-induced bug, [⭐ star the repo](https://github.com/parh0m2007/localscope) — it helps others find it.
 
 ## How impact analysis works
 
