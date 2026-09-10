@@ -1,0 +1,372 @@
+import * as path from "node:path";
+import { z } from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  ImpactToolSchema,
+  IndexToolSchema,
+  SearchToolSchema,
+  StatusToolSchema,
+} from "../schemas/tools.js";
+import type { RepoManager } from "../services/repo-manager.js";
+import type { ImpactReport } from "../types.js";
+import type { SearchHitInternal } from "../services/indexer.js";
+import { CHARACTER_LIMIT } from "../constants.js";
+
+function truncate(text: string): string {
+  if (text.length <= CHARACTER_LIMIT) return text;
+  return `${text.slice(0, CHARACTER_LIMIT)}\n…(truncated; use a narrower query or lower limit)`;
+}
+
+function formatSearchHits(
+  hits: readonly SearchHitInternal[],
+  root: string,
+  format: "markdown" | "json",
+): string {
+  if (format === "json") {
+    return truncate(
+      JSON.stringify(
+        {
+          total: hits.length,
+          hits: hits.map((h) => ({
+            file: path.relative(root, h.filePath),
+            lines: `${h.startLine}-${h.endLine}`,
+            symbol: h.symbolName,
+            symbolKind: h.symbolKind,
+            score: Number(h.score.toFixed(4)),
+            matchedBy: h.matchedBy,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+  }
+  const lines: string[] = [`# Search results (${hits.length})`, ""];
+  for (const hit of hits) {
+    const rel = path.relative(root, hit.filePath);
+    const symbol = hit.symbolName ? ` — ${hit.symbolName} (${hit.symbolKind})` : "";
+    lines.push(`## ${rel}:${hit.startLine}${symbol}`);
+    lines.push(`score ${hit.score.toFixed(3)} · matched by ${hit.matchedBy}`);
+    lines.push("");
+    lines.push("```");
+    lines.push(hit.snippet);
+    lines.push("```");
+    lines.push("");
+  }
+  return truncate(lines.join("\n"));
+}
+
+function formatImpact(
+  report: ImpactReport,
+  root: string,
+  format: "markdown" | "json",
+): string {
+  const rel = (p: string) => path.relative(root, p);
+  if (format === "json") {
+    return truncate(
+      JSON.stringify(
+        {
+          target: report.targetKind === "file" ? rel(report.target) : report.target,
+          targetKind: report.targetKind,
+          directDependents: report.directDependents.map(rel),
+          transitiveDependents: report.transitiveDependents.map(rel),
+          totalFilesAffected: report.totalFilesAffected,
+          symbolBreakages: report.symbolBreakages.map((b) => ({
+            symbol: b.symbol,
+            kind: b.kind,
+            file: rel(b.filePath),
+            line: b.line || undefined,
+            reason: b.reason,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  const lines: string[] = [];
+  const title =
+    report.targetKind === "file"
+      ? `Impact of changing ${rel(report.target)}`
+      : `Impact of changing ${report.target}`;
+  lines.push(`# ${title}`);
+  lines.push("");
+  lines.push(`Files affected: ${report.totalFilesAffected} (direct: ${report.directDependents.length}, transitive: ${report.transitiveDependents.length})`);
+  lines.push("");
+
+  if (report.directDependents.length > 0) {
+    lines.push("## Direct dependents (break first)");
+    for (const f of report.directDependents) lines.push(`- ${rel(f)}`);
+    lines.push("");
+  } else {
+    lines.push("No direct dependents. This target is a leaf.");
+    lines.push("");
+  }
+
+  if (report.transitiveDependents.length > 0) {
+    lines.push("## Transitive dependents (may break indirectly)");
+    for (const f of report.transitiveDependents) lines.push(`- ${rel(f)}`);
+    lines.push("");
+  }
+
+  if (report.symbolBreakages.length > 0) {
+    lines.push("## Symbols at risk");
+    for (const b of report.symbolBreakages) {
+      lines.push(
+        `- **${b.symbol}** (${b.kind ?? "?"}) — ${rel(b.filePath)}${b.line ? `:${b.line}` : ""} — ${b.reason}`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (report.totalFilesAffected === 0) {
+    lines.push(
+      "Nothing references this target inside the index. Safe to change locally.",
+    );
+  }
+
+  return truncate(lines.join("\n"));
+}
+
+export function registerTools(server: McpServer, manager: RepoManager): void {
+  server.registerTool(
+    "localscope_index",
+    {
+      title: "Index repository locally",
+      description: `Build a local, private index of a repository: files, symbols (functions/classes/types), import graph, and optional embeddings. Zero network calls — the index never leaves the machine.
+
+Args:
+  - path (string): repository root, default "."
+  - max_files (number): safety cap, default 50000
+  - response_format ('markdown' | 'json'): default 'markdown'
+
+Returns:
+  File/chunk/symbol counts, embedder mode (onnx or lexical), duration.
+
+Use when: the user asks to index/analyze the codebase, or before localscope_search / localscope_impact on a repo not indexed yet in this session.`,
+      inputSchema: IndexToolSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (params) => {
+      try {
+        const root = await manager.resolveRoot(params.path);
+        const started = Date.now();
+        const index = await manager.index(root, params.max_files);
+        const durationMs = Date.now() - started;
+        const summary = {
+          root,
+          files: index.files.length,
+          chunks: index.chunks.length,
+          symbols: index.symbols.length,
+          embedder:
+            index.embedder.type === "onnx"
+              ? `onnx:${index.embedder.model} (semantic)`
+              : `lexical (install @huggingface/transformers for semantic)`,
+          durationMs,
+        };
+        const text =
+          params.response_format === "json"
+            ? JSON.stringify(summary, null, 2)
+            : [
+                `# Indexed ${path.basename(root) || root}`,
+                "",
+                `- Files: ${summary.files}`,
+                `- Chunks: ${summary.chunks}`,
+                `- Symbols: ${summary.symbols}`,
+                `- Embedder: ${summary.embedder}`,
+                `- Took: ${durationMs}ms`,
+                "",
+                "Index is local-only. No code left this machine.",
+              ].join("\n");
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: summary,
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}. Check the path is a directory inside this machine.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "localscope_search",
+    {
+      title: "Search code semantically",
+      description: `Search the local index for code or docs by meaning, symbol name, or fragment. Combines embeddings (if installed) with lexical identifier matching — all offline.
+
+Args:
+  - query (string): what to find, e.g. "retry with backoff", "parseConfig", "where do we validate webhooks"
+  - path (string): repo root previously indexed, default "."
+  - limit (number): max results 1-100, default 20
+  - response_format ('markdown' | 'json'): default 'markdown'
+
+Returns:
+  Hits with file, line range, symbol, score, snippet, and how it matched (semantic/lexical/symbol).
+
+Use when: "where is X handled?", "find code that does Y". Requires localscope_index first.`,
+      inputSchema: SearchToolSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (params) => {
+      try {
+        const root = await manager.resolveRoot(params.path);
+        const hits = await manager.search(root, params.query, params.limit);
+        const text = formatSearchHits(hits, root, params.response_format);
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: {
+            total: hits.length,
+            hits: hits.map((h) => ({
+              file: path.relative(root, h.filePath),
+              startLine: h.startLine,
+              endLine: h.endLine,
+              symbol: h.symbolName,
+              score: Number(h.score.toFixed(4)),
+              matchedBy: h.matchedBy,
+            })),
+          },
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "localscope_impact",
+    {
+      title: "Analyze change impact",
+      description: `Answer "where does X break if I change Y?" from the local import graph and symbol table — entirely offline.
+
+Args:
+  - target (string): file path relative to repo root (e.g. 'src/utils/parse.ts') OR a symbol name (e.g. 'parseConfig')
+  - path (string): repo root previously indexed, default "."
+  - max_depth (number): reverse-dependency walk depth 1-10, default 5
+  - response_format ('markdown' | 'json'): default 'markdown'
+
+Returns:
+  Direct dependents (files importing the target), transitive dependents, and exported symbols at risk.
+
+Use when: "what breaks if I refactor/delete this?", "who uses this function?". Requires localscope_index first.`,
+      inputSchema: ImpactToolSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (params) => {
+      try {
+        const root = await manager.resolveRoot(params.path);
+        const report = manager.impact(root, params.target, params.max_depth);
+        const text = formatImpact(report, root, params.response_format);
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: {
+            target: params.target,
+            targetKind: report.targetKind,
+            directDependents: report.directDependents.map((p) =>
+              path.relative(root, p),
+            ),
+            transitiveDependents: report.transitiveDependents.map((p) =>
+              path.relative(root, p),
+            ),
+            totalFilesAffected: report.totalFilesAffected,
+          },
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "localscope_status",
+    {
+      title: "Show index status",
+      description: `Show whether a repository root has a local index, its stats (files/chunks/symbols), and the active embedder mode. Read-only, offline.
+
+Args:
+  - path (string): repo root, default "."
+  - response_format ('markdown' | 'json'): default 'markdown'
+
+Returns:
+  Indexed state, counts, embedder mode, indexedAt timestamp.`,
+      inputSchema: StatusToolSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (params) => {
+      try {
+        const root = await manager.resolveRoot(params.path);
+        const status = manager.status(root);
+        const text =
+          params.response_format === "json"
+            ? JSON.stringify(status, null, 2)
+            : [
+                `# localscope status`,
+                "",
+                ...Object.entries(status).map(
+                  ([k, v]) => `- **${k}**: ${String(v)}`,
+                ),
+              ].join("\n");
+        return {
+          content: [{ type: "text", text }],
+          structuredContent: status,
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+export { z };

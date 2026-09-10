@@ -1,0 +1,66 @@
+{
+  "name": "localscope-mcp",
+  "version": "0.1.1",
+  "description": "Local-first MCP code analyst: index your repo privately (embeddings + ripgrep-style search), then ask 'where does X break if I change Y' — zero cloud, zero config.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "localscope-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint src test --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "code-analysis",
+    "embeddings",
+    "ripgrep",
+    "local-first",
+    "privacy",
+    "claude",
+    "cursor",
+    "impact-analysis",
+    "codebase-intelligence"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/parh0m2007/localscope.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^3.7.6",
+    "@vscode/ripgrep": "^1.15.9"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "eslint": "^9.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^3.2.7"
+  }
+}
