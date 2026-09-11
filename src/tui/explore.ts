@@ -21,6 +21,7 @@ import {
   isInteractive,
   setRawMode,
   terminalSize,
+  type RawMode,
 } from "./terminal.js";
 
 const MAX_VISIBLE = 12;
@@ -75,34 +76,38 @@ export async function runExplore(
   render(state);
 
   let suspended = false;
+  const requestRender = (): void => {
+    if (!suspended) render(state);
+  };
 
   const dataListener = (chunk: Buffer): void => {
     if (suspended) return;
     for (const key of decodeKeys(chunk)) {
       const done = handleKey(state, key, allCandidates, {
-        openInEditor: (filePath, line) =>
-          openInEditor(filePath, line, {
+        openInEditor: async (filePath, line) => {
+          await openInEditor(filePath, line, {
             suspend: () => {
               suspended = true;
             },
             resume: () => {
               suspended = false;
+              requestRender();
             },
-          }),
+            rawHandle: raw,
+          });
+        },
       });
       if (done) {
         cleanup();
         process.exit(0);
       }
     }
-    render(state);
+    requestRender();
   };
   process.stdin.on("data", dataListener);
 
   const offResize = () => process.stdout.off("resize", resizeListener);
-  const resizeListener = (): void => {
-    if (!suspended) render(state);
-  };
+  const resizeListener = (): void => requestRender();
   process.stdout.on("resize", resizeListener);
 
   const cleanup = (): void => {
@@ -129,8 +134,13 @@ export async function runExplore(
 async function openInEditor(
   filePath: string,
   line: number,
-  hooks: { suspend: () => void; resume: () => void },
+  hooks: {
+    suspend: () => void;
+    resume: () => void;
+    rawHandle: RawMode | null;
+  },
 ): Promise<void> {
+  const { rawHandle } = hooks;
   const editorCommand = process.env.EDITOR || process.env.VISUAL || "vi";
   const editor = path.basename(editorCommand.split(" ")[0] ?? "vi");
   const at = Math.max(1, line);
@@ -156,6 +166,7 @@ async function openInEditor(
 
   hooks.suspend();
   process.stdout.write(exitAltScreen);
+  if (rawHandle) rawHandle.restore();
 
   const child = spawn(editorCommand, args, {
     stdio: "inherit",
@@ -166,6 +177,8 @@ async function openInEditor(
     child.on("error", () => resolve());
   });
 
+  // Editors may leave the terminal in their own mode; re-enter ours.
+  if (rawHandle) rawHandle.reenter();
   process.stdout.write(enterAltScreen);
   hooks.resume();
 }

@@ -27,18 +27,24 @@ export function isInteractive(): boolean {
 
 export interface RawMode {
   readonly restore: () => void;
+  /** Re-enter raw mode after an external program (e.g. $EDITOR) used the tty. */
+  readonly reenter: () => void;
 }
 
 export function setRawMode(): RawMode | null {
   if (!(process.stdin instanceof tty.ReadStream)) return null;
   try {
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
+    const enter = (): void => {
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+    };
+    enter();
     return {
       restore: () => {
         process.stdin.setRawMode(false);
         process.stdin.pause();
       },
+      reenter: enter,
     };
   } catch {
     return null;
