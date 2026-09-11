@@ -223,12 +223,12 @@ function render(state: ExploreState): void {
 
     if (report.symbolBreakages.length > 0) {
       out.push("");
-      out.push(bold("Symbols at risk"));
+      out.push(bold("Why"));
       const list = report.symbolBreakages;
       list.forEach((b, i) => {
         const branch = i + 1 < list.length ? "├──" : "└──";
         const where = `${rel(b.filePath)}${b.line ? `:${b.line}` : ""}`;
-        out.push(`  ${branch} ${b.symbol} (${b.kind ?? "?"}) ${dim(where)}`);
+        out.push(`  ${branch} ${b.symbol} ${dim(`(${b.kind ?? "?"}) ${where} — ${b.reason}`)}`);
       });
     }
 
