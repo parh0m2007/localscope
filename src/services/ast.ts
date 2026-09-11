@@ -175,9 +175,10 @@ export interface AstExtraction {
   readonly symbols: SourceSymbol[];
   /**
    * Identifier usages in the file — call targets and type/identifier
-   * reads: name -> occurrence count. Powers the symbol-level graph.
+   * reads: name -> ascending line numbers of each occurrence. Powers
+   * the symbol-level graph and editor jumps.
    */
-  readonly identifierUses: ReadonlyMap<string, number>;
+  readonly identifierUses: ReadonlyMap<string, readonly number[]>;
 }
 
 /**
@@ -304,7 +305,16 @@ interface WalkState {
   readonly source: string;
   readonly filePath: string;
   readonly symbols: SourceSymbol[];
-  readonly identifierUses: Map<string, number>;
+  readonly identifierUses: Map<string, number[]>;
+}
+
+function recordUse(state: WalkState, name: string, line: number): void {
+  const lines = state.identifierUses.get(name);
+  if (lines) {
+    if (lines[lines.length - 1] !== line) lines.push(line);
+  } else {
+    state.identifierUses.set(name, [line]);
+  }
 }
 
 function walk(node: TSNode, state: WalkState): void {
@@ -331,14 +341,13 @@ function walk(node: TSNode, state: WalkState): void {
       DEFINITIONS.has(parent.type) &&
       parent.childForFieldName("name") === node;
     if (!parentUsesNameField && node.text.length >= 2) {
-      const name = node.text;
-      state.identifierUses.set(name, (state.identifierUses.get(name) ?? 0) + 1);
+      recordUse(state, node.text, node.startPosition.row + 1);
     }
   } else if (node.type === "call_expression" || node.type === "call") {
     const callee = node.childForFieldName("function") ?? node.namedChildren[0];
     const name = calleeName(callee);
     if (name && name !== "this") {
-      state.identifierUses.set(name, (state.identifierUses.get(name) ?? 0) + 1);
+      recordUse(state, name, callee!.startPosition.row + 1);
     }
   }
 

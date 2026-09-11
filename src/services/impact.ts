@@ -14,6 +14,7 @@ export interface SymbolGraphLike extends GraphLike {
     readonly filePath: string;
     readonly kind: string;
     readonly count?: number;
+    readonly lines?: readonly number[];
   }[];
 }
 
@@ -21,16 +22,21 @@ function referencesTo(
   index: SymbolGraphLike,
   symbolName: string,
   definitionFiles: ReadonlySet<string>,
-): { filePath: string; count: number }[] {
-  const uses = new Map<string, number>();
+): { filePath: string; lines: readonly number[] }[] {
+  const uses = new Map<string, number[]>();
   for (const ref of index.references) {
     if (ref.name !== symbolName) continue;
     if (definitionFiles.has(ref.filePath)) continue;
-    uses.set(ref.filePath, (uses.get(ref.filePath) ?? 0) + (ref.count ?? 1));
+    const merged = [...(uses.get(ref.filePath) ?? []), ...(ref.lines ?? [])];
+    merged.sort((a, b) => a - b);
+    uses.set(ref.filePath, merged);
   }
   return [...uses.entries()]
-    .map(([filePath, count]) => ({ filePath, count }))
-    .sort((a, b) => b.count - a.count || a.filePath.localeCompare(b.filePath));
+    .map(([filePath, lines]) => ({ filePath, lines }))
+    .sort(
+      (a, b) =>
+        b.lines.length - a.lines.length || a.filePath.localeCompare(b.filePath),
+    );
 }
 
 export function analyzeFileImpact(
@@ -145,12 +151,19 @@ export function analyzeSymbolImpact(
   if (hasReferences && usageFiles.length > 0) {
     for (const use of usageFiles) {
       affectedFiles.add(use.filePath);
+      const first = use.lines[0] ?? 0;
+      const lines =
+        use.lines.length > 1
+          ? ` (lines ${use.lines.slice(0, 4).join(", ")}${use.lines.length > 4 ? ", …" : ""})`
+          : first > 0
+            ? ` (line ${first})`
+            : "";
       breakages.push({
         symbol: symbolName,
         kind: definitions[0].kind as SymbolBreakage["kind"],
         filePath: use.filePath,
-        line: 0,
-        reason: `uses ${symbolName} ${use.count}× (AST reference)`,
+        line: first,
+        reason: `uses ${symbolName} ${use.lines.length}×${lines} (AST reference)`,
       });
     }
   } else {

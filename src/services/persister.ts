@@ -11,7 +11,7 @@ import { buildLexicalTf } from "./embedder.js";
  * Bump when the on-disk layout changes. Persisted caches with an older
  * schemaVersion are discarded and rebuilt from scratch.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 interface SerializedIndex {
   schemaVersion: number;

@@ -6,6 +6,8 @@ import {
   IndexToolSchema,
   SearchToolSchema,
   StatusToolSchema,
+  ReferencesToolSchema,
+  DefinitionToolSchema,
 } from "../schemas/tools.js";
 import type { RepoManager } from "../services/repo-manager.js";
 import type { ImpactReport } from "../types.js";
@@ -361,6 +363,181 @@ Returns:
         return {
           content: [{ type: "text", text }],
           structuredContent: status,
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "localscope_references",
+    {
+      title: "Find symbol call sites",
+      description: `Find every call site and read of a symbol across the repo, with exact line numbers — a local "find all usages". Works from the AST reference graph, entirely offline.
+
+Args:
+  - symbol (string): symbol name, e.g. "parseConfig"
+  - path (string): repo root previously indexed, default "."
+  - response_format ('markdown' | 'json'): default 'markdown'
+
+Returns:
+  Files that use the symbol, with line numbers per file and total count.
+
+Use when: "where is X called?", "show me all usages of X". Requires localscope_index first.`,
+      inputSchema: ReferencesToolSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (params) => {
+      try {
+        const root = await manager.resolveRoot(params.path);
+        const uses = await manager.references(root, params.symbol);
+        if (uses.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `No references to '${params.symbol}' in the index. Check the name, or re-index if the codebase changed.`,
+              },
+            ],
+          };
+        }
+        const total = uses.reduce((sum, u) => sum + u.count, 0);
+        const text =
+          params.response_format === "json"
+            ? JSON.stringify(
+                {
+                  symbol: params.symbol,
+                  total,
+                  files: uses.map((u) => ({
+                    file: path.relative(root, u.filePath),
+                    lines: u.lines,
+                    count: u.count,
+                  })),
+                },
+                null,
+                2,
+              )
+            : [
+                `# ${params.symbol} — ${total} reference${total === 1 ? "" : "s"} in ${uses.length} file${uses.length === 1 ? "" : "s"}`,
+                "",
+                ...uses.map(
+                  (u) =>
+                    `- ${path.relative(root, u.filePath)}:${u.lines.join(", ")} (${u.count}×)`,
+                ),
+              ].join("\n");
+        return {
+          content: [{ type: "text", text: truncate(text) }],
+          structuredContent: {
+            symbol: params.symbol,
+            total,
+            files: uses.map((u) => ({
+              file: path.relative(root, u.filePath),
+              lines: u.lines,
+              count: u.count,
+            })),
+          },
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "localscope_definition",
+    {
+      title: "Locate symbol definition",
+      description: `Find where a symbol is defined: file, line span, kind, and whether it is exported. A local "go to definition". Entirely offline.
+
+Args:
+  - symbol (string): symbol name, e.g. "parseConfig"
+  - path (string): repo root previously indexed, default "."
+  - response_format ('markdown' | 'json'): default 'markdown'
+
+Returns:
+  Definition sites (usually one; more if the name is defined in several files).
+
+Use when: "where is X defined?", "show me the definition of X". Requires localscope_index first.`,
+      inputSchema: DefinitionToolSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (params) => {
+      try {
+        const root = await manager.resolveRoot(params.path);
+        const defs = await manager.definition(root, params.symbol);
+        if (defs.length === 0) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `'${params.symbol}' is not defined in the index. Check the name, or re-index if the codebase changed.`,
+              },
+            ],
+          };
+        }
+        const text =
+          params.response_format === "json"
+            ? JSON.stringify(
+                {
+                  symbol: params.symbol,
+                  definitions: defs.map((d) => ({
+                    file: path.relative(root, d.filePath),
+                    line: d.line,
+                    endLine: d.endLine,
+                    kind: d.kind,
+                    exported: d.exported,
+                  })),
+                },
+                null,
+                2,
+              )
+            : [
+                `# ${params.symbol}`,
+                "",
+                ...defs.map(
+                  (d) =>
+                    `- ${path.relative(root, d.filePath)}:${d.line}-${d.endLine} — ${d.kind}${d.exported ? " (exported)" : ""}`,
+                ),
+              ].join("\n");
+        return {
+          content: [{ type: "text", text: truncate(text) }],
+          structuredContent: {
+            symbol: params.symbol,
+            definitions: defs.map((d) => ({
+              file: path.relative(root, d.filePath),
+              line: d.line,
+              endLine: d.endLine,
+              kind: d.kind,
+              exported: d.exported,
+            })),
+          },
         };
       } catch (error) {
         return {

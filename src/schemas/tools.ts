@@ -79,7 +79,43 @@ export const StatusToolSchema = z
   })
   .strict();
 
+export const ReferencesToolSchema = z
+  .object({
+    symbol: z
+      .string()
+      .min(2, "Symbol name must be at least 2 characters")
+      .max(256)
+      .describe("Symbol name to find call sites and reads for (e.g. 'parseConfig')"),
+    path: z
+      .string()
+      .min(1)
+      .max(4096)
+      .default(".")
+      .describe("Repository path (must match a previously indexed root)"),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
+export const DefinitionToolSchema = z
+  .object({
+    symbol: z
+      .string()
+      .min(2, "Symbol name must be at least 2 characters")
+      .max(256)
+      .describe("Symbol name to locate the definition of (e.g. 'parseConfig')"),
+    path: z
+      .string()
+      .min(1)
+      .max(4096)
+      .default(".")
+      .describe("Repository path (must match a previously indexed root)"),
+    response_format: ResponseFormatSchema,
+  })
+  .strict();
+
 export type IndexToolInput = z.infer<typeof IndexToolSchema>;
 export type SearchToolInput = z.infer<typeof SearchToolSchema>;
 export type ImpactToolInput = z.infer<typeof ImpactToolSchema>;
 export type StatusToolInput = z.infer<typeof StatusToolSchema>;
+export type ReferencesToolInput = z.infer<typeof ReferencesToolSchema>;
+export type DefinitionToolInput = z.infer<typeof DefinitionToolSchema>;

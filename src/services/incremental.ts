@@ -119,12 +119,13 @@ export async function updateIndex(
       usedAst = true;
       symbols.push(...ast.symbols);
       references.push(
-        ...[...ast.identifierUses].map(([name, count]): SymbolReference => ({
+        ...[...ast.identifierUses].map(([name, lines]): SymbolReference => ({
           name,
           filePath,
-          line: 0,
+          line: lines[0] ?? 0,
           kind: "usage",
-          count,
+          count: lines.length,
+          lines: [...lines],
         })),
       );
       for (const chunk of astChunks(ast.symbols, content, filePath, walked.language)) {

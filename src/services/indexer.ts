@@ -67,13 +67,14 @@ export async function buildIndex(options: IndexOptions): Promise<IndexResult> {
     if (ast) {
       usedAst = true;
       symbols.push(...ast.symbols);
-      for (const [name, count] of ast.identifierUses) {
+      for (const [name, lines] of ast.identifierUses) {
         references.push({
           name,
           filePath: file.filePath,
-          line: 0,
+          line: lines[0] ?? 0,
           kind: "usage",
-          count,
+          count: lines.length,
+          lines: [...lines],
         });
       }
       chunks.push(...astChunks(ast.symbols, content, file.filePath, file.language));

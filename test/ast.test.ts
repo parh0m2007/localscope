@@ -156,12 +156,14 @@ describe("AST reference graph powers impact", () => {
     expect(affected).toContain("src/main.ts");
     expect(affected).toContain("src/services/server.ts");
 
-    // Precise: breakages cite actual usage counts, not just imports.
+    // Precise: breakages cite actual usage counts and line numbers.
     const usageBreakage = report.symbolBreakages.find(
       (b) => b.reason.includes("AST reference"),
     );
     expect(usageBreakage).toBeDefined();
     expect(usageBreakage?.reason).toMatch(/uses parseConfig \d+×/);
+    expect(usageBreakage?.reason).toMatch(/\(line[s]? \d+/);
+    expect(usageBreakage?.line).toBeGreaterThan(0);
   });
 
   it("symbol impact on a leaf symbol reports zero dependents", () => {

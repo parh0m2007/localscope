@@ -45,7 +45,10 @@ export interface SymbolReference {
   readonly filePath: string;
   readonly line: number;
   readonly kind: "import" | "usage" | "definition";
+  /** Total occurrence count (calls + reads) of the symbol in the file. */
   readonly count?: number;
+  /** Line numbers of each occurrence, ascending. */
+  readonly lines?: readonly number[];
 }
 
 export interface FileEntry {

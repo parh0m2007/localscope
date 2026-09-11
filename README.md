@@ -35,7 +35,7 @@ $ localscope explore
 
 | Command | What it does |
 |---|---|
-| `localscope explore` | Interactive impact browser: type a symbol or file, see what breaks — fzf-style, in your terminal |
+| `localscope explore` | Interactive impact browser: type a symbol or file, see what breaks — fzf-style, in your terminal. `↑/↓` highlights a victim, `o` opens it in your `$EDITOR` at the first call site |
 | `localscope report --target X` | The same impact analysis, plain text to stdout — pipe it, grep it, put it in CI |
 | `localscope index` | Build or refresh the local index (incremental — unchanged files are skipped) |
 
@@ -99,6 +99,12 @@ The headline tool. Give it a file path or a symbol name and it walks the reverse
 - **Symbols at risk** — exported functions/classes in the target and why each is fragile
 - **Fuzzy suggestions** — typo in the name? It suggests what you meant
 
+### `localscope_references`
+A local "find all usages": every call site and read of a symbol, with exact line numbers per file. `where is parseConfig called?` → `src/main.ts:4` and friends — from the AST reference graph, offline.
+
+### `localscope_definition`
+A local "go to definition": file, line span, kind, and export status of a symbol.
+
 ### `localscope_status`
 Index stats: files, chunks, symbols, embedder mode, timestamp.
 
@@ -148,7 +154,7 @@ Zero required. Everything is optional:
 ```bash
 git clone <repo> && cd localscope
 npm install
-npm test        # 60 tests
+npm test        # 62 tests
 npm run build
 npx @modelcontextprotocol/inspector node dist/index.js
 ```

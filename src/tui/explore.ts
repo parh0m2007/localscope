@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { spawn } from "node:child_process";
 import type { ImpactReport } from "../types.js";
 import type { RepoManager } from "../services/repo-manager.js";
 import {
@@ -18,7 +19,6 @@ import {
 import {
   decodeKeys,
   isInteractive,
-  onResize,
   setRawMode,
   terminalSize,
 } from "./terminal.js";
@@ -34,6 +34,8 @@ interface ExploreState {
   reportRoot: string;
   scroll: number;
   notice: string | null;
+  /** Cursor over the "Breaks first" file list in the impact view. */
+  victimCursor: number;
 }
 
 export async function runExplore(
@@ -65,15 +67,29 @@ export async function runExplore(
     reportRoot: rootDir,
     scroll: 0,
     notice: null,
+    victimCursor: 0,
   };
 
   const raw = setRawMode();
   process.stdout.write(enterAltScreen);
   render(state);
 
+  let suspended = false;
+
   const dataListener = (chunk: Buffer): void => {
+    if (suspended) return;
     for (const key of decodeKeys(chunk)) {
-      const done = handleKey(state, key, allCandidates);
+      const done = handleKey(state, key, allCandidates, {
+        openInEditor: (filePath, line) =>
+          openInEditor(filePath, line, {
+            suspend: () => {
+              suspended = true;
+            },
+            resume: () => {
+              suspended = false;
+            },
+          }),
+      });
       if (done) {
         cleanup();
         process.exit(0);
@@ -83,7 +99,11 @@ export async function runExplore(
   };
   process.stdin.on("data", dataListener);
 
-  const offResize = onResize(() => render(state));
+  const offResize = () => process.stdout.off("resize", resizeListener);
+  const resizeListener = (): void => {
+    if (!suspended) render(state);
+  };
+  process.stdout.on("resize", resizeListener);
 
   const cleanup = (): void => {
     process.stdin.off("data", dataListener);
@@ -102,10 +122,40 @@ export async function runExplore(
   });
 }
 
+/**
+ * Open a file in $EDITOR (Vim/VS Code/etc.) at a line. Leaves the alt
+ * screen while the editor runs, then returns and lets the caller redraw.
+ */
+async function openInEditor(
+  filePath: string,
+  line: number,
+  hooks: { suspend: () => void; resume: () => void },
+): Promise<void> {
+  const editor = process.env.EDITOR || process.env.VISUAL || "vi";
+  const args = /^vi|m?vim|nvim|nano|emacs$/.test(path.basename(editor))
+    ? ["+" + line, filePath]
+    : ["-g", filePath + ":" + line];
+
+  hooks.suspend();
+  process.stdout.write(exitAltScreen);
+
+  const child = spawn(editor, args, {
+    stdio: "inherit",
+  });
+  await new Promise<void>((resolve) => {
+    child.on("exit", () => resolve());
+    child.on("error", () => resolve());
+  });
+
+  process.stdout.write(enterAltScreen);
+  hooks.resume();
+}
+
 function handleKey(
   state: ExploreState,
   key: ReturnType<typeof decodeKeys>[number],
   allCandidates: readonly ExploreCandidate[],
+  hooks: { openInEditor: (filePath: string, line: number) => Promise<void> },
 ): boolean {
   switch (key.kind) {
     case "interrupt":
@@ -118,38 +168,53 @@ function handleKey(
       }
       return true;
     case "enter": {
+      if (state.view === "impact") {
+        // Enter in the impact view opens the highlighted victim, like `o`.
+        void openVictim(state, hooks);
+        return false;
+      }
       const selected = state.candidates[state.cursor];
       if (!selected) return false;
       try {
         state.report = selected.impact();
         state.view = "impact";
         state.scroll = 0;
+        state.victimCursor = 0;
         state.notice = null;
       } catch (error) {
         state.notice = error instanceof Error ? error.message : String(error);
       }
       return false;
     }
-    case "backspace":
-      state.query = state.query.slice(0, -1);
+    case "printable": {
+      const text = key.text.toLowerCase();
+      if (state.view === "impact" && (text === "o" || text === "oo")) {
+        void openVictim(state, hooks);
+        return false;
+      }
+      if (state.view === "impact") return false;
+      state.query += key.text;
       state.cursor = 0;
       refreshCandidates(state, allCandidates);
       return false;
-    case "printable":
-      state.query += key.text;
+    }
+    case "backspace":
+      if (state.view === "impact") return false;
+      state.query = state.query.slice(0, -1);
       state.cursor = 0;
       refreshCandidates(state, allCandidates);
       return false;
     case "up":
       if (state.view === "impact") {
-        state.scroll = Math.max(0, state.scroll - 1);
+        state.victimCursor = Math.max(0, state.victimCursor - 1);
       } else {
         state.cursor = Math.max(0, state.cursor - 1);
       }
       return false;
     case "down":
       if (state.view === "impact") {
-        state.scroll += 1;
+        const max = victimCount(state) - 1;
+        state.victimCursor = Math.min(max, state.victimCursor + 1);
       } else {
         state.cursor = Math.min(
           state.candidates.length - 1,
@@ -159,6 +224,35 @@ function handleKey(
       return false;
     default:
       return false;
+  }
+}
+
+function victimCount(state: ExploreState): number {
+  return state.report ? state.report.directDependents.length : 0;
+}
+
+function currentVictim(
+  state: ExploreState,
+): { filePath: string; line: number } | null {
+  if (!state.report) return null;
+  const file = state.report.directDependents[state.victimCursor];
+  if (!file) return null;
+  const breakage = state.report.symbolBreakages.find(
+    (b) => b.filePath === file && b.line > 0,
+  );
+  return { filePath: file, line: breakage?.line ?? 1 };
+}
+
+async function openVictim(
+  state: ExploreState,
+  hooks: { openInEditor: (filePath: string, line: number) => Promise<void> },
+): Promise<void> {
+  const victim = currentVictim(state);
+  if (!victim) return;
+  try {
+    await hooks.openInEditor(victim.filePath, victim.line);
+  } catch (error) {
+    state.notice = error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -204,9 +298,14 @@ function render(state: ExploreState): void {
 
     if (report.directDependents.length > 0) {
       out.push(bold("Breaks first"));
-      for (const f of report.directDependents) {
-        out.push(`  ${rel(f)}`);
-      }
+      report.directDependents.forEach((f, i) => {
+        const line = `  ${rel(f)}`;
+        if (i === state.victimCursor) {
+          out.push(inverse(pad(line, size.cols)));
+        } else {
+          out.push(line);
+        }
+      });
     } else {
       out.push("Nothing references this target. Safe to change.");
     }
@@ -233,7 +332,11 @@ function render(state: ExploreState): void {
     }
 
     out.push("");
-    out.push(dim("Esc back to search · Ctrl-C exit"));
+    const openHint =
+      report.directDependents.length > 0
+        ? " · enter/o opens it in your editor"
+        : "";
+    out.push(dim(`Esc back to search · Ctrl-C exit${openHint}`));
   }
 
   if (state.notice) {
@@ -245,7 +348,7 @@ function render(state: ExploreState): void {
   const visibleRows = Math.max(size.rows - 1, 1);
   const start =
     state.view === "impact"
-      ? Math.max(0, Math.min(state.scroll, body.length - visibleRows))
+      ? Math.max(0, Math.min(state.victimCursor, Math.max(0, body.length - visibleRows)))
       : 0;
   const end = start + visibleRows;
   const frame = body.slice(start, end).join("\n");

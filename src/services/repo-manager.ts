@@ -207,6 +207,68 @@ export class RepoManager {
     );
   }
 
+  async references(
+    root: string,
+    symbolName: string,
+  ): Promise<
+    {
+      filePath: string;
+      lines: readonly number[];
+      count: number;
+    }[]
+  > {
+    const index = await this.ensureIndex(root);
+    if (!index) {
+      throw new Error(
+        `No index for ${root}. Call localscope_index first, then ask for references.`,
+      );
+    }
+    const uses = new Map<string, number[]>();
+    for (const ref of index.references) {
+      if (ref.name !== symbolName) continue;
+      const merged = [...(uses.get(ref.filePath) ?? []), ...(ref.lines ?? [])];
+      merged.sort((a, b) => a - b);
+      uses.set(ref.filePath, merged);
+    }
+    return [...uses.entries()]
+      .map(([filePath, lines]) => ({ filePath, lines, count: lines.length }))
+      .sort(
+        (a, b) =>
+          b.count - a.count || a.filePath.localeCompare(b.filePath),
+      );
+  }
+
+  async definition(
+    root: string,
+    symbolName: string,
+  ): Promise<
+    {
+      name: string;
+      kind: string;
+      filePath: string;
+      line: number;
+      endLine: number;
+      exported: boolean;
+    }[]
+  > {
+    const index = await this.ensureIndex(root);
+    if (!index) {
+      throw new Error(
+        `No index for ${root}. Call localscope_index first, then ask for the definition.`,
+      );
+    }
+    return index.symbols
+      .filter((s) => s.name === symbolName)
+      .map((s) => ({
+        name: s.name,
+        kind: s.kind,
+        filePath: s.filePath,
+        line: s.line,
+        endLine: s.endLine,
+        exported: s.exported,
+      }));
+  }
+
   async status(root: string): Promise<Record<string, unknown>> {
     const index = await this.ensureIndex(root);
     if (!index) {

@@ -22,7 +22,7 @@ async function setup(): Promise<Client> {
 }
 
 describe("MCP tools integration", () => {
-  it("lists all four localscope tools", async () => {
+  it("lists all six localscope tools", async () => {
     const client = await setup();
     const tools = await client.listTools();
     const names = tools.tools.map((t) => t.name);
@@ -32,6 +32,8 @@ describe("MCP tools integration", () => {
         "localscope_search",
         "localscope_impact",
         "localscope_status",
+        "localscope_references",
+        "localscope_definition",
       ]),
     );
   });
@@ -93,5 +95,53 @@ describe("MCP tools integration", () => {
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { text: string }).text;
     expect(text).toMatch(/error/i);
+  });
+
+  it("references: call sites with line numbers", async () => {
+    const client = await setup();
+    const result = await client.callTool({
+      name: "localscope_references",
+      arguments: { symbol: "parseConfig", path: ROOT, response_format: "json" },
+    });
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text) as {
+      total: number;
+      files: { file: string; lines: number[]; count: number }[];
+    };
+    expect(parsed.total).toBeGreaterThan(0);
+    const files = parsed.files.map((f) => f.file);
+    expect(files).toContain("src/main.ts");
+    expect(files).toContain("src/services/server.ts");
+    for (const f of parsed.files) {
+      expect(f.lines.length).toBeGreaterThan(0);
+      for (const line of f.lines) {
+        expect(line).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("definition: locates the symbol with kind and span", async () => {
+    const client = await setup();
+    const result = await client.callTool({
+      name: "localscope_definition",
+      arguments: { symbol: "parseConfig", path: ROOT, response_format: "json" },
+    });
+    const text = (result.content[0] as { text: string }).text;
+    const parsed = JSON.parse(text) as {
+      definitions: {
+        file: string;
+        line: number;
+        endLine: number;
+        kind: string;
+        exported: boolean;
+      }[];
+    };
+    expect(parsed.definitions.length).toBeGreaterThan(0);
+    const def = parsed.definitions[0];
+    expect(def.file).toBe("src/utils/config.ts");
+    expect(def.line).toBe(6);
+    expect(def.endLine).toBeGreaterThanOrEqual(def.line);
+    expect(def.kind).toBe("function");
+    expect(def.exported).toBe(true);
   });
 });
