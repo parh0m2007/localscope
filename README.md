@@ -114,6 +114,19 @@ localscope makes **no outbound network calls** — not for search, not for model
 
 Air-gap friendly. NDA friendly. Paranoia friendly.
 
+## Performance
+
+Measured on [ripgrep](https://github.com/BurntSushi/ripgrep) (233 source files, 110 in Rust), M1 MacBook Air, default Node heap:
+
+| Operation | Time | Result |
+|---|---|---|
+| Cold index, ONNX embeddings | ~2 min | 2,786 symbols · 9,288 references · 3,277 chunks |
+| Cold index, lexical only (no transformers installed) | ~2 s | same graph, no semantic search |
+| Re-open (warm cache, incremental) | 1.3 s | zero re-extraction |
+| `localscope_impact` / `references` | < 10 ms | from the in-memory graph |
+
+The index persists to disk (~75 MB for ripgrep); every session after the first is the warm number. The file watcher keeps it fresh while the server runs — editing a file lands in the index within ~300 ms.
+
 ## Star it
 
 If localscope saved you a refactor-induced bug, [⭐ star the repo](https://github.com/parh0m2007/localscope) — it helps others find it.
