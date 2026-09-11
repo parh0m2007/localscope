@@ -223,6 +223,10 @@ export class RepoManager {
       files: index.files.length,
       chunks: index.chunks.length,
       symbols: index.symbols.length,
+      references: index.references.length,
+      extraction: index.astActive
+        ? "tree-sitter AST (accurate symbols + references)"
+        : "regex fallback (grammars unavailable)",
       embedder:
         index.embedder.type === "onnx"
           ? `onnx:${index.embedder.model} (semantic search active)`
@@ -234,7 +238,13 @@ export class RepoManager {
   }
 
   close(): void {
-    for (const watcher of this.watchers.values()) watcher.close();
+    for (const watcher of this.watchers.values()) {
+      try {
+        watcher.close();
+      } catch {
+        // best-effort teardown
+      }
+    }
     this.watchers.clear();
   }
 }

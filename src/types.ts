@@ -45,6 +45,7 @@ export interface SymbolReference {
   readonly filePath: string;
   readonly line: number;
   readonly kind: "import" | "usage" | "definition";
+  readonly count?: number;
 }
 
 export interface FileEntry {
@@ -89,6 +90,8 @@ export interface RepoIndex {
   readonly chunks: readonly CodeChunk[];
   readonly fileGraph: ReadonlyMap<string, FileNode>;
   readonly symbols: readonly SourceSymbol[];
+  readonly references: readonly SymbolReference[];
+  readonly astActive: boolean;
   readonly indexedAt: number;
   readonly embedder: EmbedderKind;
 }

@@ -156,9 +156,16 @@ export function createRepoWatcher(options: WatcherOptions): RepoWatcher {
 
   return {
     close: () => {
+      if (closed) return;
       closed = true;
       if (timer) clearTimeout(timer);
-      for (const w of watchers) w.close();
+      for (const w of watchers) {
+        try {
+          w.close();
+        } catch {
+          // watcher already invalidated (e.g. during process teardown)
+        }
+      }
       watchers.length = 0;
       pending.clear();
     },

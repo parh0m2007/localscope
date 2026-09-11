@@ -3,24 +3,43 @@
 [![CI](https://github.com/parh0m2007/localscope/actions/workflows/ci.yml/badge.svg)](https://github.com/parh0m2007/localscope/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/localscope-mcp)](https://www.npmjs.com/package/localscope-mcp)
 
-**A local code analyst for your AI assistant.**
+**A local code analyst for your AI assistant — and for you.**
 
-localscope is an [MCP](https://modelcontextprotocol.io) server that indexes your repository on your machine — files, symbols, imports, optional embeddings — and lets Claude, Cursor, Codex, Windsurf, or any MCP client answer questions like:
+localscope is an [MCP](https://modelcontextprotocol.io) server that indexes your repository on your machine — files, symbols, imports, references, optional embeddings — and lets Claude, Cursor, Codex, Windsurf, or any MCP client answer questions like:
 
 > "Where does X break if I change Y?"
 
-without a single byte of your code leaving your machine.
+without a single byte of your code leaving your machine. And when there's no AI client around, `localscope explore` puts the same graph in your terminal.
 
 ```
-$ claude mcp add localscope -- npx localscope-mcp
+$ localscope explore
 
-User:   what breaks if I rename parseConfig?
-Claude: → localscope_impact(parseConfig)
-        Direct dependents (break first):
-        - src/main.ts
-        - src/services/server.ts
-        Symbols at risk: parseConfig (exported function) …
+  change what? parseConfig
+    parseConfig   function · src/utils/config.ts:6
+    AppConfig     interface · src/utils/config.ts:1
+    … 4 more
+
+  [enter]
+
+  Impact of changing parseConfig
+  2 files affected · 2 direct · 0 transitive
+
+  Breaks first
+    src/main.ts
+    src/services/server.ts
+
+  Esc back to search · Ctrl-C exit
 ```
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `localscope explore` | Interactive impact browser: type a symbol or file, see what breaks — fzf-style, in your terminal |
+| `localscope report --target X` | The same impact analysis, plain text to stdout — pipe it, grep it, put it in CI |
+| `localscope index` | Build or refresh the local index (incremental — unchanged files are skipped) |
+
+No AI client, no network, no leaving the repo. The MCP server and the CLI share one index.
 
 ## Why
 
@@ -31,7 +50,7 @@ Cloud code-search tools are great — until the repo is under NDA, on an air-gap
 | Code leaves machine | never | yes |
 | Setup | `npx localscope-mcp` | API key, upload |
 | Works offline | yes | no |
-| Impact analysis | import graph + symbols | varies |
+| Impact analysis | AST symbols + call graph | varies |
 
 ## Quickstart
 
@@ -95,8 +114,8 @@ If localscope saved you a refactor-induced bug, [⭐ star the repo](https://gith
 
 ## How impact analysis works
 
-1. **Walk** the repo, respecting `.gitignore` (compiled from real gitignore semantics: negation, directory rules, globstars).
-2. **Extract symbols** per language — functions, classes, interfaces, types, methods, constants — with regex grammars for TypeScript/JavaScript, Python, Go, Rust, Java, and Ruby.
+1. **Parse** each file with tree-sitter (WASM — no native builds, no language servers). Accurate symbols — functions, classes, interfaces, types, methods, constants — with real line spans and export status. Grammars ship inside the package: TypeScript/TSX, JavaScript, Python, Go, Rust, Java, Ruby, PHP, C, C++, C#. No grammar available (exotic file, pruned install)? localscope falls back to regex extraction — zero-config either way.
+2. **Record references**, not just imports: every identifier use (call sites, type references) goes into the symbol graph, so impact analysis answers "who *actually calls* this", not just "who imports the file it lives in".
 3. **Resolve imports** into a file graph. TypeScript-style `.js` → `.ts` mapping included (ESM-style imports resolve correctly).
 4. **Answer** "who breaks?" by traversing the reverse graph and cross-referencing the symbol table.
 
@@ -129,7 +148,7 @@ Zero required. Everything is optional:
 ```bash
 git clone <repo> && cd localscope
 npm install
-npm test        # 39 tests
+npm test        # 60 tests
 npm run build
 npx @modelcontextprotocol/inspector node dist/index.js
 ```

@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import * as path from "node:path";
-import type { CodeChunk, FileEntry, FileNode, SourceSymbol } from "../types.js";
+import type { CodeChunk, FileEntry, FileNode, SourceSymbol, SymbolReference } from "../types.js";
 import type { IndexResult } from "./indexer.js";
 import type { LexicalIndexEntry } from "./embedder.js";
 import { buildLexicalTf } from "./embedder.js";
@@ -20,7 +20,9 @@ interface SerializedIndex {
   chunks: (Omit<CodeChunk, "embedding"> & { embedding: number[] | null })[];
   fileGraph: { path: string; imports: string[]; importedBy: string[] }[];
   symbols: SourceSymbol[];
+  references: SymbolReference[];
   indexedAt: number;
+  astActive: boolean;
   embedder: IndexResult["embedder"];
 }
 
@@ -97,6 +99,8 @@ export async function loadIndex(rootDir: string): Promise<LoadResult> {
     chunks: parsed.chunks,
     fileGraph,
     symbols: parsed.symbols,
+    references: parsed.references ?? [],
+    astActive: parsed.astActive ?? false,
     indexedAt: parsed.indexedAt,
     embedder: parsed.embedder,
     lexicalIndex: rebuildLexicalIndex(parsed.chunks),
@@ -122,7 +126,9 @@ export async function saveIndex(index: IndexResult): Promise<void> {
       importedBy: [...n.importedBy],
     })),
     symbols: index.symbols.map((s) => ({ ...s })),
+    references: index.references.map((r) => ({ ...r })),
     indexedAt: index.indexedAt,
+    astActive: index.astActive,
     embedder: index.embedder,
   };
 

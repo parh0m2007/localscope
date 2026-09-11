@@ -1,6 +1,6 @@
 {
   "name": "localscope-mcp",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Local-first MCP code analyst: index your repo privately (embeddings + ripgrep-style search), then ask 'where does X break if I change Y' — zero cloud, zero config.",
   "type": "module",
   "main": "dist/index.js",
@@ -9,11 +9,13 @@
   },
   "files": [
     "dist",
+    "grammars",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run vendor:grammars",
+    "vendor:grammars": "node scripts/vendor-grammars.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -47,6 +49,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "web-tree-sitter": "^0.24.7",
     "zod": "^3.23.8"
   },
   "optionalDependencies": {
@@ -58,6 +61,7 @@
     "@types/node": "^22.10.0",
     "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^9.0.0",
+    "tree-sitter-wasms": "^0.1.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.70.0",

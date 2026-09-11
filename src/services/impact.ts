@@ -8,6 +8,31 @@ import type { ImpactReport, SymbolBreakage } from "../types.js";
 
 export type { IndexResultLike };
 
+export interface SymbolGraphLike extends GraphLike {
+  readonly references: readonly {
+    readonly name: string;
+    readonly filePath: string;
+    readonly kind: string;
+    readonly count?: number;
+  }[];
+}
+
+function referencesTo(
+  index: SymbolGraphLike,
+  symbolName: string,
+  definitionFiles: ReadonlySet<string>,
+): { filePath: string; count: number }[] {
+  const uses = new Map<string, number>();
+  for (const ref of index.references) {
+    if (ref.name !== symbolName) continue;
+    if (definitionFiles.has(ref.filePath)) continue;
+    uses.set(ref.filePath, (uses.get(ref.filePath) ?? 0) + (ref.count ?? 1));
+  }
+  return [...uses.entries()]
+    .map(([filePath, count]) => ({ filePath, count }))
+    .sort((a, b) => b.count - a.count || a.filePath.localeCompare(b.filePath));
+}
+
 export function analyzeFileImpact(
   index: GraphLike,
   targetPath: string,
@@ -72,7 +97,7 @@ function findSymbolBreakages(
 }
 
 export function analyzeSymbolImpact(
-  index: GraphLike,
+  index: SymbolGraphLike,
   symbolName: string,
   options: ImpactOptions = {},
 ): ImpactReport {
@@ -96,6 +121,7 @@ export function analyzeSymbolImpact(
 
   const breakages: SymbolBreakage[] = [];
   const affectedFiles = new Set<string>();
+  const definitionFiles = new Set(definitions.map((d) => d.filePath));
 
   for (const def of definitions) {
     affectedFiles.add(def.filePath);
@@ -106,22 +132,46 @@ export function analyzeSymbolImpact(
       line: def.line,
       reason: `defined here (${def.kind}${def.exported ? ", exported" : ""})`,
     });
+  }
 
-    const fileReport = analyzeFileImpact(index, def.filePath, { maxDepth });
-    for (const dep of fileReport.directDependents) {
-      affectedFiles.add(dep);
+  // Symbol-level usage from the AST reference graph (call sites) — this is
+  // what makes symbol impact precise: files that actually use the symbol,
+  // not merely every importer of the defining file.
+  const hasReferences = index.references.length > 0;
+  const usageFiles = hasReferences
+    ? referencesTo(index, symbolName, definitionFiles)
+    : [];
+
+  if (hasReferences && usageFiles.length > 0) {
+    for (const use of usageFiles) {
+      affectedFiles.add(use.filePath);
       breakages.push({
-        symbol: def.name,
-        kind: def.kind as SymbolBreakage["kind"],
-        filePath: dep,
+        symbol: symbolName,
+        kind: definitions[0].kind as SymbolBreakage["kind"],
+        filePath: use.filePath,
         line: 0,
-        reason: `file imports from ${path.basename(def.filePath)}; renaming ${def.name} breaks this file`,
+        reason: `uses ${symbolName} ${use.count}× (AST reference)`,
       });
+    }
+  } else {
+    // Fallback (regex index or no AST data): file-level import analysis.
+    for (const def of definitions) {
+      const fileReport = analyzeFileImpact(index, def.filePath, { maxDepth });
+      for (const dep of fileReport.directDependents) {
+        affectedFiles.add(dep);
+        breakages.push({
+          symbol: def.name,
+          kind: def.kind as SymbolBreakage["kind"],
+          filePath: dep,
+          line: 0,
+          reason: `file imports from ${path.basename(def.filePath)}; renaming ${def.name} breaks this file`,
+        });
+      }
     }
   }
 
   const direct = [...affectedFiles].filter(
-    (f) => !definitions.some((d) => d.filePath === f),
+    (f) => !definitionFiles.has(f),
   );
 
   return {

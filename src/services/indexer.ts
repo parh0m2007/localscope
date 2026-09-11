@@ -18,11 +18,15 @@ import {
 } from "./embedder.js";
 import { walkRepository } from "./walker.js";
 import { extractImports, buildFileGraph } from "./indexer-internals.js";
+import { astExtractFromFile } from "./ast.js";
+import type { SymbolReference } from "../types.js";
 
 export { buildFileGraph };
 
 export interface IndexResult extends RepoIndex {
   readonly lexicalIndex: readonly LexicalIndexEntry[];
+  readonly references: readonly SymbolReference[];
+  readonly astActive: boolean;
 }
 
 export interface IndexOptions {
@@ -45,6 +49,8 @@ export async function buildIndex(options: IndexOptions): Promise<IndexResult> {
   const chunks: CodeChunk[] = [];
   const symbols: SourceSymbol[] = [];
   const importsByFile = new Map<string, string[]>();
+  const references: SymbolReference[] = [];
+  let usedAst = false;
 
   for (const file of files) {
     let content: string;
@@ -55,9 +61,28 @@ export async function buildIndex(options: IndexOptions): Promise<IndexResult> {
     }
     if (content.length === 0) continue;
 
-    const extraction = extractFromFile(content, file.filePath, file.language);
-    symbols.push(...extraction.symbols);
-    chunks.push(...extraction.chunks);
+    // AST extraction first (accurate symbols + identifier uses); regex
+    // extractor as zero-config fallback.
+    const ast = await astExtractFromFile(file.filePath, file.language);
+    if (ast) {
+      usedAst = true;
+      symbols.push(...ast.symbols);
+      for (const [name, count] of ast.identifierUses) {
+        references.push({
+          name,
+          filePath: file.filePath,
+          line: 0,
+          kind: "usage",
+          count,
+        });
+      }
+      chunks.push(...astChunks(ast.symbols, content, file.filePath, file.language));
+    } else {
+      const extraction = extractFromFile(content, file.filePath, file.language);
+      symbols.push(...extraction.symbols);
+      chunks.push(...extraction.chunks);
+    }
+
     importsByFile.set(
       file.filePath,
       extractImports(
@@ -98,10 +123,72 @@ export async function buildIndex(options: IndexOptions): Promise<IndexResult> {
     chunks: embeddedChunks,
     fileGraph,
     symbols,
+    references,
+    astActive: usedAst,
     indexedAt: Date.now(),
     embedder: embedder.kind,
     lexicalIndex,
   };
+}
+
+export function astChunks(
+  symbols: readonly SourceSymbol[],
+  content: string,
+  filePath: string,
+  language: CodeChunk["language"],
+): CodeChunk[] {
+  if (symbols.length === 0) {
+    return blockChunks(content, filePath, language);
+  }
+  const lines = content.split("\n");
+  const chunks: CodeChunk[] = [];
+  for (const symbol of symbols) {
+    const start = symbol.line - 1;
+    const end = Math.min(symbol.endLine, lines.length);
+    const body = lines.slice(start, end).join("\n");
+    if (body.trim().length === 0) continue;
+    chunks.push({
+      id: `${filePath}#${symbol.name}@${symbol.line}`,
+      filePath,
+      language,
+      kind: "symbol",
+      symbolName: symbol.name,
+      symbolKind: symbol.kind,
+      startLine: symbol.line,
+      endLine: end,
+      content: body,
+      embedding: null,
+    });
+  }
+  return chunks;
+}
+
+function blockChunks(
+  content: string,
+  filePath: string,
+  language: CodeChunk["language"],
+): CodeChunk[] {
+  const lines = content.split("\n");
+  const size = 60;
+  const chunks: CodeChunk[] = [];
+  for (let start = 0; start < lines.length; start += size) {
+    const end = Math.min(start + size, lines.length);
+    const body = lines.slice(start, end).join("\n");
+    if (body.trim().length === 0) continue;
+    chunks.push({
+      id: `${filePath}#block@${start + 1}`,
+      filePath,
+      language,
+      kind: "block",
+      symbolName: null,
+      symbolKind: null,
+      startLine: start + 1,
+      endLine: end,
+      content: body,
+      embedding: null,
+    });
+  }
+  return chunks;
 }
 
 export interface SearchHitInternal {

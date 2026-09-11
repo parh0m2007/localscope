@@ -3,15 +3,9 @@ import * as path from "node:path";
 import { IGNORED_FILE_PATTERNS } from "../constants.js";
 import { walkRepository, clearGitignoreCache } from "./walker.js";
 import { extractFromFile } from "./extractor.js";
-import {
-  buildLexicalTf,
-  type Embedder,
-} from "./embedder.js";
-import type {
-  CodeChunk,
-  FileEntry,
-  SourceSymbol,
-} from "../types.js";
+import { astExtractFromFile } from "./ast.js";
+import { buildLexicalTf, type Embedder } from "./embedder.js";
+import type { CodeChunk, FileEntry, SourceSymbol, SymbolReference } from "../types.js";
 import type { IndexResult } from "./indexer.js";
 
 export interface IncrementalUpdate {
@@ -93,13 +87,17 @@ export async function updateIndex(
   const chunks: CodeChunk[] = previous.chunks.filter(
     (c) => !touched.has(c.filePath) && allFiles.has(c.filePath),
   );
+  const references: SymbolReference[] = previous.references.filter(
+    (r) => !touched.has(r.filePath) && allFiles.has(r.filePath),
+  );
 
   // Extract touched files. Import resolution needs the language from walk.
-  const {
-    extractImportsForFile,
-    buildFileGraph,
-  } = await import("./indexer-internals.js");
+  const { extractImportsForFile, buildFileGraph } = await import(
+    "./indexer-internals.js"
+  );
+  const { astChunks } = await import("./indexer.js");
   const embedder = options.embedder;
+  let usedAst = previous.astActive;
 
   const newChunkIds = new Set(chunks.map((c) => c.id));
   const embedded: CodeChunk[] = [];
@@ -116,11 +114,30 @@ export async function updateIndex(
     }
     if (content.length === 0) continue;
 
-    const extraction = extractFromFile(content, filePath, walked.language);
-    symbols.push(...extraction.symbols);
-    for (const chunk of extraction.chunks) {
-      if (newChunkIds.has(chunk.id)) continue; // dedupe safety
-      embedded.push(chunk);
+    const ast = await astExtractFromFile(filePath, walked.language);
+    if (ast) {
+      usedAst = true;
+      symbols.push(...ast.symbols);
+      references.push(
+        ...[...ast.identifierUses].map(([name, count]): SymbolReference => ({
+          name,
+          filePath,
+          line: 0,
+          kind: "usage",
+          count,
+        })),
+      );
+      for (const chunk of astChunks(ast.symbols, content, filePath, walked.language)) {
+        if (newChunkIds.has(chunk.id)) continue;
+        embedded.push(chunk);
+      }
+    } else {
+      const extraction = extractFromFile(content, filePath, walked.language);
+      symbols.push(...extraction.symbols);
+      for (const chunk of extraction.chunks) {
+        if (newChunkIds.has(chunk.id)) continue;
+        embedded.push(chunk);
+      }
     }
     importsByFile.set(
       filePath,
@@ -163,6 +180,8 @@ export async function updateIndex(
     chunks: allChunks,
     fileGraph,
     symbols,
+    references,
+    astActive: usedAst,
     indexedAt: Date.now(),
     embedder: embedder.kind,
     lexicalIndex,
