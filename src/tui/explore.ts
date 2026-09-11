@@ -131,16 +131,35 @@ async function openInEditor(
   line: number,
   hooks: { suspend: () => void; resume: () => void },
 ): Promise<void> {
-  const editor = process.env.EDITOR || process.env.VISUAL || "vi";
-  const args = /^vi|m?vim|nvim|nano|emacs$/.test(path.basename(editor))
-    ? ["+" + line, filePath]
-    : ["-g", filePath + ":" + line];
+  const editorCommand = process.env.EDITOR || process.env.VISUAL || "vi";
+  const editor = path.basename(editorCommand.split(" ")[0] ?? "vi");
+  const at = Math.max(1, line);
+
+  // Line-argument convention per editor family.
+  const args: string[] = [];
+  if (/^(vi|vim|nvim|view)$/.test(editor)) {
+    args.push(`+${at}`, filePath);
+  } else if (editor === "emacs" || editor === "emacsclient") {
+    args.push(`+${at}`, filePath);
+  } else if (editor === "nano") {
+    args.push(`+${at}`, filePath);
+  } else if (editor === "code" || editor === "code-insiders") {
+    args.push("--goto", `${filePath}:${at}`, "--wait");
+  } else if (editor === "cursor" || editor === "zed") {
+    args.push(`${filePath}:${at}`, "--wait");
+  } else if (editor === "subl") {
+    args.push(`${filePath}:${at}`, "--wait");
+  } else {
+    // Unknown editor: safest common form is vim's +line — widely honored.
+    args.push(`+${at}`, filePath);
+  }
 
   hooks.suspend();
   process.stdout.write(exitAltScreen);
 
-  const child = spawn(editor, args, {
+  const child = spawn(editorCommand, args, {
     stdio: "inherit",
+    shell: false,
   });
   await new Promise<void>((resolve) => {
     child.on("exit", () => resolve());
