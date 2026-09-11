@@ -5,7 +5,7 @@ import { RepoManager } from "./services/repo-manager.js";
 import { registerTools } from "./tools/register.js";
 import { runCli } from "./cli.js";
 
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 
 async function main(): Promise<void> {
   // CLI passthrough: `localscope-mcp explore`, `report`, `index` run the
