@@ -40,13 +40,8 @@ export async function runCli(argv: readonly string[]): Promise<number> {
       }
 
       const root = await manager.resolveRoot(repoPath);
-      const index = await manager.ensureIndex(root);
-      if (!index) {
-        console.error(
-          `No index for ${root}. Run 'localscope explore' once, or localscope_index in MCP.`,
-        );
-        return 1;
-      }
+      const loaded = await manager.ensureIndex(root);
+      const index = loaded ?? (await manager.index(root, 50_000)).index;
 
       let report;
       const asFile = path.isAbsolute(target)

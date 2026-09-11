@@ -46,11 +46,13 @@ export async function runExplore(
     );
   }
 
-  const index = await manager.ensureIndex(rootDir);
+  // First run: build the index right here — explore should never demand a
+  // prerequisite; it loads a persisted one if it exists, otherwise builds.
+  let index = await manager.ensureIndex(rootDir);
   if (!index) {
-    throw new Error(
-      `No index for ${rootDir}. Run 'localscope explore' from the repo, or localscope_index in MCP first.`,
-    );
+    process.stderr.write("Indexing for the first time…\n");
+    const outcome = await manager.index(rootDir, 50_000);
+    index = outcome.index;
   }
 
   const allCandidates = buildCandidates(index, rootDir);
@@ -67,6 +69,7 @@ export async function runExplore(
 
   const raw = setRawMode();
   process.stdout.write(enterAltScreen);
+  render(state);
 
   const dataListener = (chunk: Buffer): void => {
     for (const key of decodeKeys(chunk)) {
@@ -97,8 +100,6 @@ export async function runExplore(
     cleanup();
     process.exit(0);
   });
-
-  render(state);
 }
 
 function handleKey(
