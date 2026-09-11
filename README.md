@@ -5,6 +5,8 @@
 
 **A local code analyst for your AI assistant — and for you.**
 
+![explore demo](docs/demo.gif)
+
 localscope is an [MCP](https://modelcontextprotocol.io) server that indexes your repository on your machine — files, symbols, imports, references, optional embeddings — and lets Claude, Cursor, Codex, Windsurf, or any MCP client answer questions like:
 
 > "Where does X break if I change Y?"
