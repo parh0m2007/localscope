@@ -141,12 +141,17 @@ async function openInEditor(
   },
 ): Promise<void> {
   const { rawHandle } = hooks;
-  const editorCommand = process.env.EDITOR || process.env.VISUAL || "vi";
-  const editor = path.basename(editorCommand.split(" ")[0] ?? "vi");
+  // $EDITOR may be a full command line ("code --wait", "vim -u ...").
+  // Split it: argv0 to spawn, and keep its own flags.
+  const editorLine = process.env.EDITOR || process.env.VISUAL || "vi";
+  const editorParts = editorLine.split(/\s+/).filter(Boolean);
+  const editorBin = editorParts[0] ?? "vi";
+  const editorFlags = editorParts.slice(1);
+  const editor = path.basename(editorBin);
   const at = Math.max(1, line);
 
   // Line-argument convention per editor family.
-  const args: string[] = [];
+  const args: string[] = [...editorFlags];
   if (/^(vi|vim|nvim|view)$/.test(editor)) {
     args.push(`+${at}`, filePath);
   } else if (editor === "emacs" || editor === "emacsclient") {
@@ -168,13 +173,20 @@ async function openInEditor(
   process.stdout.write(exitAltScreen);
   if (rawHandle) rawHandle.restore();
 
-  const child = spawn(editorCommand, args, {
+  const child = spawn(editorBin, args, {
     stdio: "inherit",
     shell: false,
   });
   await new Promise<void>((resolve) => {
     child.on("exit", () => resolve());
-    child.on("error", () => resolve());
+    child.on("error", (error) => {
+      // Editor failed to start (not found, no exec bit). Tell the user
+      // instead of silently returning to a seemingly unchanged screen.
+      process.stderr.write(
+        `localscope: could not start editor '${editorBin}': ${error.message}\n`,
+      );
+      resolve();
+    });
   });
 
   // Editors may leave the terminal in their own mode; re-enter ours.
