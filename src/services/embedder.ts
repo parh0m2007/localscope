@@ -38,11 +38,14 @@ async function createOnnxEmbedder(
       embed: async (texts) => {
         if (texts.length === 0) return [];
         const results: number[][] = [];
-        const batchSize = 16;
+        // Sequential batches: Promise.all over an inference-heavy batch
+        // queues all work at once and spikes memory on large repos
+        // (thousands of chunks), which OOMs the default heap.
+        const batchSize = 8;
         for (let i = 0; i < texts.length; i += batchSize) {
-          const batch = texts.slice(i, i + batchSize);
-          const batchResults = await Promise.all(batch.map(embedOne));
-          results.push(...batchResults);
+          for (let j = i; j < Math.min(i + batchSize, texts.length); j++) {
+            results.push(await embedOne(texts[j]));
+          }
         }
         return results;
       },
