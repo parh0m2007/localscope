@@ -6,7 +6,7 @@ Materials for submitting localscope to directories and communities.
 
 ## Contents
 
-- `awesome-pr.md` — PR body for `punkpeye/awesome-mcp-servers` (one-line addition to README + entry in `servers/README.md`)
+- `awesome-pr.md` — PR to `punkpeye/awesome-mcp-servers`: exact line to add (verified against live upstream: section `### 💻 Developer Tools`, alphabetical by owner/repo, insert after `paracetamol951/P-Link-MCP`), PR title/body, full gh command sequence
 - `mcp-directory.md` — submission form content for mcp.directory
 - `show-hn.md` — Show HN draft (title + text + first comment)
 

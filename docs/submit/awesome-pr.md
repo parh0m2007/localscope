@@ -1,59 +1,87 @@
-# PR: Add localscope
+# PR: Add localscope to awesome-mcp-servers
 
-**Для:** `punkpeye/awesome-mcp-servers` — fork, branch `add-localscope`, edit `README.md` (one line in the closed-source section) + `servers/README.md` (full entry), open PR against `main`.
+**Target:** `punkpeye/awesome-mcp-servers` — fork, branch `add-localscope`, one edit to `README.md` only (this repo keeps everything in the single README; there is no `servers/README.md` with this format), open PR against `main`.
 
-**Branch base:** `main` of the upstream repo.
+Verified against the live upstream `main` README (2026-09-12):
 
-## One-line entry for `README.md` (closed-source section, keep alphabetical order by name)
+- Section: **`### 💻 <a name="developer-tools"></a>Developer Tools`** (heading at ~line 1215, not 🛠️ — that's only in the TOC). This section already hosts near-identical servers (mcp-code-indexer with blast-radius analysis, trace-mcp, bumpguard-mcp, kivgraph) — clearly the right home. Code Execution is for sandboxed *execution*, not analysis; don't use it.
+- Ordering is alphabetical **by owner/repo string**, so `parh0m2007/localscope` goes into the "p" cluster, NOT into the "lo*" run (that cluster is sorted by owner, and `parh0m2007` doesn't belong there).
+- Insert after `paracetamol951/P-Link-MCP` (~line 1534) and before `mcpware/pagecast` (an out-of-order append) / strictly before `Perseus-Computing-LLC/perseus`.
+- Format: `[owner/repo](url)` + optional glama.ai score badge + flags `📇 🏠 🍎 🪟 🐧` (TypeScript, Local, macOS/Windows/Linux) + ` - ` + one-liner, install command in backticks.
+- Glama badge is optional (appears only once the server is indexed on glama.ai) — for the PR, include it; if the badge 404s at review time, the maintainer may drop it or it renders blank. Alternative: submit without the badge first, add later.
 
-```
-- [localscope](https://github.com/parh0m2007/localscope) 🇺🇦 - A local-first code analyst that indexes your repository offline (tree-sitter symbols, references, import graph) and answers "where does X break if I change Y?" without your code leaving your machine.
-```
-
-Note: check the repo's actual flag rules — if 🇺🇸/-only server locations are used and localscope has none (it's fully local), use no flag or `-`. localscope is 100% local/no server, so the closed-source section fits only if their taxonomy expects local tools there; otherwise the **uncategorized/local** section is more accurate. Read the section headers first and place accordingly.
-
-## Full entry for `servers/README.md` (in the appropriate section, alphabetical)
+## Exact line to add (README.md, Developer Tools section, after paracetamol951/P-Link-MCP)
 
 ```
-### localscope
+- [parh0m2007/localscope](https://github.com/parh0m2007/localscope) [![parh0m2007/localscope MCP server](https://glama.ai/mcp/servers/parh0m2007/localscope/badges/score.svg)](https://glama.ai/mcp/servers/parh0m2007/localscope) 📇 🏠 🍎 🪟 🐧 - Local-first code analyst: indexes your repo offline (tree-sitter symbols, references, import graph, optional ONNX embeddings) and answers "where does X break if I change Y?" with line-precise references and go-to-definition. No LSP, no daemon, zero network. Install: `npx localscope-mcp`.
+```
 
-A local-first MCP code analyst. Indexes your repository on your machine — files, tree-sitter symbols, references, imports, optional local ONNX embeddings — and gives Claude/Cursor/Codex/Windsurf tools to answer questions like "where does X break if I change Y?", "who calls parseConfig?", and "where is parseConfig defined?" with exact file:line answers. Zero network calls, zero telemetry, zero config. Ships with an interactive terminal impact browser (`localscope explore`) that works without any AI client.
+Without-badge fallback (if glama hasn't indexed it yet):
 
-- **Type:** `stdio`, optional `http` (localhost only)
-- **Tags:** `code-analysis`, `impact-analysis`, `code-search`, `privacy`, `local-first`
-- **Install:**
-  ```bash
-  claude mcp add localscope -- npx localscope-mcp
-  ```
-  or any MCP client: `npx localscope-mcp` (Node 18+, no config; installs offline)
-- **Repo:** <https://github.com/parh0m2007/localscope>
-- **npm:** <https://www.npmjs.com/package/localscope-mcp>
-- **License:** MIT
+```
+- [parh0m2007/localscope](https://github.com/parh0m2007/localscope) 📇 🏠 🍎 🪟 🐧 - Local-first code analyst: indexes your repo offline (tree-sitter symbols, references, import graph, optional ONNX embeddings) and answers "where does X break if I change Y?" with line-precise references and go-to-definition. No LSP, no daemon, zero network. Install: `npx localscope-mcp`.
 ```
 
 ## PR title
 
 ```
-Add localscope: local-first code analyst with impact analysis
+Add localscope
 ```
+
+(Upstream examples use plain `Add <name>`; CONTRIBUTING.md's example commit message is "Add new XYZ server". Note: upstream offers fast-tracked merges for agent PRs marked 🤖🤖🤖 — do NOT use that, this is a human submission.)
 
 ## PR body
 
 ```markdown
-Adds localscope — a local-first MCP code analyst. It indexes a repository offline (tree-sitter symbols, references, import graph, optional local ONNX embeddings) and exposes search / impact / references / definition tools, so an assistant can answer "where does X break if I change Y?" without the code ever leaving the machine. No LSP, no daemon, no cloud; stdio by default, works via `npx localscope-mcp` with zero config.
+Adds localscope to the Developer Tools section (alphabetical position in the parh0m2007 cluster).
+
+localscope is a local-first MCP code analyst: it indexes a repository offline — tree-sitter symbols (WASM grammars, no LSP/daemon), references, import graph, optional local ONNX embeddings — and gives AI coding assistants tools for impact analysis ("where does X break if I change Y?"), line-precise find-all-usages, and go-to-definition. Zero network calls, zero telemetry, zero config; stdio by default. Also ships a terminal impact browser (`localscope explore`) that works without any AI client.
 
 - Repo: https://github.com/parh0m2007/localscope
 - npm: https://www.npmjs.com/package/localscope-mcp
-- License: MIT, TypeScript, tests + CI on Node 18/20/22 across Linux/macOS/Windows
+- License: MIT · TypeScript · Node 18+ · CI on Linux/macOS/Windows
 
-Happy to adjust the entry format or section if I've placed it wrong.
+Happy to adjust wording, flags, or section if anything's off.
 ```
 
-## Submission checklist
+## Submission checklist (gh commands)
 
-- [ ] Fork punkpeye/awesome-mcp-servers
-- [ ] Branch `add-localscope` from upstream `main`
-- [ ] README.md: one-liner (correct section, alphabetical)
-- [ ] servers/README.md: full entry
-- [ ] Open PR to punkpeye:awesome-mcp-servers `main`
-- [ ] PR title/body as above
+```bash
+# 1. Fork + clone
+gh repo fork punkpeye/awesome-mcp-servers --clone
+cd awesome-mcp-servers
+git checkout -b add-localscope
+
+# 2. Edit README.md: insert the entry in Developer Tools after paracetamol951/P-Link-MCP
+#    (verify the current line position with: rg -n "paracetamol951|Perseus-Computing" README.md)
+
+# 3. Verify format locally renders (optional): glow README.md or view on GitHub preview
+
+# 4. Commit + push + PR
+git add README.md
+git commit -m "Add localscope"
+git push -u origin add-localscope
+gh pr create \
+  --repo punkpeye/awesome-mcp-servers \
+  --base main \
+  --head parh0m2007:add-localscope \
+  --title "Add localscope" \
+  --body-file <(cat <<'EOF'
+Adds localscope to the Developer Tools section (alphabetical position in the parh0m2007 cluster).
+
+localscope is a local-first MCP code analyst: it indexes a repository offline — tree-sitter symbols (WASM grammars, no LSP/daemon), references, import graph, optional local ONNX embeddings — and gives AI coding assistants tools for impact analysis ("where does X break if I change Y?"), line-precise find-all-usages, and go-to-definition. Zero network calls, zero telemetry, zero config; stdio by default. Also ships a terminal impact browser (`localscope explore`) that works without any AI client.
+
+- Repo: https://github.com/parh0m2007/localscope
+- npm: https://www.npmjs.com/package/localscope-mcp
+- License: MIT · TypeScript · Node 18+ · CI on Linux/macOS/Windows
+
+Happy to adjust wording, flags, or section if anything's off.
+EOF
+)
+```
+
+## Before opening the PR
+
+- [ ] npm 0.4.3 published (OOM fix live — first impression matters)
+- [ ] Check glama.ai has indexed localscope (badge link: https://glama.ai/mcp/servers/parh0m2007/localscope) — if not, use the no-badge variant
+- [ ] Re-verify insertion point against the then-current main (the "p" cluster may have moved): `rg -n "paracetamol951|Perseus-Computing" README.md`
